@@ -11,7 +11,7 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
- 
+
 from pymongo import MongoClient, ASCENDING
 
 from .logging import logger
@@ -21,17 +21,28 @@ def process_tenant_deviceauth_and_inventory(client: MongoClient, tenant: str):
     deviceauth = client["deviceauth-" + tenant["_id"]]
     inventory = client["inventory-" + tenant["_id"]]
     # verify sync between deviceauth and inventory
-    filter_devices = {"status": {"$ne": "preauthorized"}}
+    filter_devices = {}
+    inventory_devices_count = inventory.devices.count_documents({})
     devices_count = deviceauth.devices.count_documents(filter_devices)
-    devices = deviceauth.devices.find(filter_devices).sort([("_id", ASCENDING)])
+    devices = deviceauth.devices.find(filter_devices, no_cursor_timeout=True).sort(
+        [("_id", ASCENDING)]
+    )
     for i, device in enumerate(devices):
         logger.debug(
-            "- Processing device ID: %s (%d/%d)", device["_id"], i + 1, devices_count
+            "- Processing device ID: %s/%s (%d/%d)",
+            tenant["_id"],
+            device["_id"],
+            i + 1,
+            devices_count,
         )
         # get the device from inventory
+        device_inventory = from_deviceauth_to_inventory(device)
         device_inventory = inventory["devices"].find_one({"_id": device["_id"]})
         if device_inventory is None:
-            logger.error("- Device NOT FOUND!")
+            logger.error("- Device NOT FOUND: %s", device)
+            device_inventory = from_deviceauth_to_inventory(device)
+            inventory["devices"].insert_one(device_inventory)
+            inventory_devices_count = inventory_devices_count + 1
             continue
         # get the device status from inventory
         device_inventory_status = (
@@ -83,20 +94,61 @@ def process_tenant_deviceauth_and_inventory(client: MongoClient, tenant: str):
                 {"_id": device_inventory["_id"]},
                 {"$set": {"revision": device_revision}},
             )
+    devices.close()
     # verify missing decommissioning in inventory
-    inventory_devices_count = inventory.devices.count_documents({})
     if inventory_devices_count == devices_count:
         return
     # we have a mismatch, post-process inventory devices
-    devices = inventory.devices.find({}).sort([("_id", ASCENDING)])
+    devices = inventory.devices.find({}, no_cursor_timeout=True).sort(
+        [("_id", ASCENDING)]
+    )
     for i, device in enumerate(devices):
         logger.debug(
-            "- Post-processing device ID: %s (%d/%d)",
+            "- Post-processing device ID: %s/%s (%d/%d)",
+            tenant["_id"],
             device["_id"],
             i + 1,
-            devices_count,
+            inventory_devices_count,
         )
         # get the device from deviceauth
-        device_deviceauth = deviceauth["devices"].find_one({"_id": device["_id"]})
+        device_deviceauth = deviceauth["devices"].find_one(
+            {
+                "_id": device["_id"],
+                "status": {"$ne": "preauthorized"},
+            }
+        )
         if device_deviceauth is None:
             logger.error("- Device NOT FOUND in deviceauth: %s", device)
+            inventory.devices.delete_one({"_id": device["_id"]})
+    devices.close()
+
+
+def from_deviceauth_to_inventory(device):
+    attributes = {
+        "system-created_ts": {
+            "name": "created_ts",
+            "value": device["created_ts"],
+            "scope": "system",
+        },
+        "system-updated_ts": {
+            "name": "updated_ts",
+            "value": device["updated_ts"],
+            "scope": "system",
+        },
+        "identity-status": {
+            "name": "status",
+            "scope": "identity",
+            "value": device["status"],
+        },
+    }
+    for key, value in device.get("id_data_struct", {}).items():
+        attributes["identity-%s" % key] = {
+            "name": key,
+            "scope": "identity",
+            "value": value,
+        }
+    return {
+        "_id": device["_id"],
+        "attributes": attributes,
+        "revision": device.get("revision", 0),
+    }

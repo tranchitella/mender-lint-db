@@ -16,14 +16,19 @@ import logging
 
 from colorlog import ColoredFormatter
 
-LOG_LEVEL = logging.DEBUG
 LOGFORMAT = "%(asctime)-15s %(levelname)s %(log_color)s%(message)s%(reset)s"
-logging.root.setLevel(LOG_LEVEL)
-formatter = ColoredFormatter(LOGFORMAT)
-stream = logging.StreamHandler()
-stream.setLevel(LOG_LEVEL)
-stream.setFormatter(formatter)
+
 
 logger = logging.getLogger(__name__)
-logger.setLevel(LOG_LEVEL)
-logger.addHandler(stream)
+
+
+def setup_logging(debug: bool = False):
+    LOG_LEVEL = logging.DEBUG if debug else logging.INFO
+    logging.root.setLevel(LOG_LEVEL)
+    formatter = ColoredFormatter(LOGFORMAT)
+    stream = logging.StreamHandler()
+    stream.setLevel(LOG_LEVEL)
+    stream.setFormatter(formatter)
+
+    logger.setLevel(LOG_LEVEL)
+    logger.addHandler(stream)

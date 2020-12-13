@@ -19,22 +19,24 @@ import click
 from pymongo import MongoClient, DESCENDING
 
 from .deviceauth_and_inventory import process_tenant_deviceauth_and_inventory
-from .logging import logger
+from .logging import logger, setup_logging
 
 
 def process_tenant(client: MongoClient, tenant: str):
     process_tenant_deviceauth_and_inventory(client, tenant)
 
 
-def process_tenants(client: MongoClient, tenant_id: List[str]):
+def process_tenants(client: MongoClient, tenant_id: List[str], first_tenant_id: str):
     tenantadm = client["tenantadm"]
-    tenants_count = tenantadm.tenants.count_documents({})
     tenants_filter = {}
     if tenant_id:
         tenants_filter["_id"] = {"$in": tenant_id}
+    elif first_tenant_id:
+        tenants_filter["_id"] = {"$lte": first_tenant_id}
+    tenants_count = tenantadm.tenants.count_documents(tenants_filter)
     tenants = tenantadm.tenants.find(tenants_filter).sort([("_id", DESCENDING)])
     for i, tenant in enumerate(tenants):
-        logger.debug(
+        logger.info(
             "Processing tenant ID: %s (%d/%d)", tenant["_id"], i + 1, tenants_count
         )
         process_tenant(client, tenant)
@@ -47,11 +49,19 @@ def process_tenants(client: MongoClient, tenant_id: List[str]):
     help="connection URI to the mongodb",
 )
 @click.option(
-    "--tenant-id", help="connection URI to the mongodb", multiple=True,
+    "--tenant-id",
+    help="tenant ID to sync (multiple)",
+    multiple=True,
 )
-def main(mongodb_uri: str, tenant_id: List[str]):
+@click.option(
+    "--first-tenant-id",
+    help="first tenant ID to process",
+)
+@click.option("--debug/--no-debug", default=False)
+def main(mongodb_uri: str, tenant_id: List[str], first_tenant_id: str, debug: bool):
+    setup_logging(debug)
     client = MongoClient(mongodb_uri)
-    process_tenants(client, tenant_id)
+    process_tenants(client, tenant_id, first_tenant_id)
 
 
 if __name__ == "__main__":
