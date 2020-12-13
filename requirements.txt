@@ -1,0 +1,16 @@
+appdirs==1.4.4
+black==20.8b1
+certifi==2020.12.5
+click==7.1.2
+colorlog==4.6.2
+dnspython==2.0.0
+humanfriendly==9.1
+# Editable Git install with no remote (mender-lint-db==1.0.0)
+-e /Users/kobold/src/northerntech/mender-fix-db/src
+mypy-extensions==0.4.3
+pathspec==0.8.1
+pymongo==3.11.2
+regex==2020.11.13
+toml==0.10.2
+typed-ast==1.4.1
+typing-extensions==3.7.4.3
